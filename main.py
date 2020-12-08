@@ -9,54 +9,60 @@ from sys import argv
 import config
 from utils.serverchan_push import push_to_wechat
 
-class SMZDM_Bot(object):
-    def __init__(self):
-        self.session = requests.Session()
-        # 添加 headers
-        self.session.headers = config.DEFAULT_HEADERS
-
-    def __json_check(self, msg):
-        """
-        对请求 盖乐世社区 返回的数据进行进行检查
-        1.判断是否 json 形式
-        """
-        try:
-            result = msg.json()
-            print(result)
-            return True
-        except Exception as e:
-            print(f'Error : {e}')            
-            return False
-
-    def load_cookie_str(self, cookies):
-        """
-        起一个什么值得买的，带cookie的session
-        cookie 为浏览器复制来的字符串
-        :param cookie: 登录过的社区网站 cookie
-        """
-        self.session.headers['Cookie'] = cookies    
-
-    def checkin(self):
-        """
-        签到函数
-        """
-        url = 'https://zhiyou.smzdm.com/user/checkin/jsonp_checkin'
-        msg = self.session.get(url)
-        if self.__json_check(msg):
-            return msg.json()
-        return msg.content
-
-
-
-
-if __name__ == '__main__':
-    sb = SMZDM_Bot()
-    # sb.load_cookie_str(config.TEST_COOKIE)
-    cookies = os.environ["COOKIES"]
-    SERVERCHAN_SECRETKEY = os.environ["SERVERCHAN_SECRETKEY"]
-    sb.load_cookie_str(cookies)
-    res = sb.checkin()
-    print(res)
-    push_to_wechat(text = '什么值得买每日签到',
-                    desp = str(res),
-                    secretKey = SERVERCHAN_SECRETKEY)
+import requests
+import re
+#添加请求头信息
+headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.66 Safari/537.36'     
+    }
+def get_detailurl():
+    menu = ['bingtong','erjiaben','jiachun','cusuan']
+    base_url = 'http://jiage.cngold.org/{}/'
+    detail_urls = []
+    for i in menu:
+        detail_url = base_url.format(i)
+        # print(detail_url)
+        detail_urls.append(detail_url)
+    lis = []
+    for detail_url in detail_urls:
+        resp = requests.get(detail_url,headers = headers)
+        resp.encoding = 'utf-8'
+        html = resp.text
+        li = re.findall(r'''<div.*?news_list_lab.*?href="(.*?)"\starget''',html,re.VERBOSE|re.DOTALL)
+        lis.append(li[0])
+        # print(lis)
+    return lis
+def parse_detail_url(lis):
+    end_results = []
+    for li in lis:
+        resp = requests.get(li,headers = headers)
+        resp.encoding = 'utf-8'
+        html = resp.text
+        lis = re.findall(r'''<th\scolspan.*?>(.*?)</th>''',html,re.VERBOSE|re.DOTALL)[0][0:13]
+        mingcheng = re.findall(r'''<th\scolspan.*?td>(.*?)</td>''',html,re.VERBOSE|re.DOTALL)
+        lis1 = re.findall(r'''<th\scolspan.*?td>.*?</td>.*?<td>(.*?)</td>''',html,re.VERBOSE|re.DOTALL)
+        lis2 = re.findall(r'''<th\scolspan.*?td>.*?</td>.*?<td>.*?</td>.*?<td>.*?</td>.*?<td>(.*?)</td>''',html,re.VERBOSE|re.DOTALL)
+        mingcheng = "".join(mingcheng[0].split())
+        lis1 = "".join(lis1[0].split())
+        lis2 = "".join(lis2[0].split())
+        end_result = str(lis+mingcheng+' '+lis1+'元/吨。对比昨日价格'+lis2[0])
+        # print(end_result)
+        end_results.append(end_result)
+    # print(end_results)
+    end_result = '\n'.join(end_results)
+    return end_result  
+def main():
+    lis = get_detailurl()
+    end_result = parse_detail_url(lis)
+    print(end_result)
+    api = "https://sc.ftqq.com/SCU122408T2c2ede4298638d75f2240b174765a0ec5f9e6f114d95f.send"
+    title = u"溶剂价格"
+    content = end_result
+    data = {
+    "text":title,
+    "desp":content
+    }
+    req = requests.post(api,data = data)
+if __name__ == "__main__":
+    main() 
+    
